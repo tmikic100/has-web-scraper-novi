@@ -1,9 +1,44 @@
 const API_BASE_URL = "https://has-web-scraper-novi.onrender.com";
 
+let inFlight = 0;
+let hadError = false;
+let wakeupTimer = null;
+
+function showBanner(text, isError) {
+  const banner = document.getElementById("status-banner");
+  banner.textContent = text;
+  banner.classList.remove("hidden");
+  banner.classList.toggle("error", !!isError);
+}
+
+function hideBanner() {
+  document.getElementById("status-banner").classList.add("hidden");
+}
+
 async function api(path) {
-  const res = await fetch(`${API_BASE_URL}${path}`);
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json();
+  inFlight++;
+  // Render's free tier sleeps after idle; only mention it if a request is
+  // actually taking a while, so a normal fast response shows nothing.
+  wakeupTimer = setTimeout(
+    () => showBanner("Waking up the server (it sleeps when idle) — this can take up to a minute..."),
+    2000,
+  );
+  try {
+    const res = await fetch(`${API_BASE_URL}${path}`);
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return await res.json();
+  } catch (e) {
+    hadError = true;
+    showBanner(`Couldn't reach the server: ${e.message}`, true);
+    throw e;
+  } finally {
+    clearTimeout(wakeupTimer);
+    inFlight--;
+    if (inFlight === 0) {
+      if (!hadError) hideBanner();
+      hadError = false;
+    }
+  }
 }
 
 function fillSelect(select, values, placeholder) {

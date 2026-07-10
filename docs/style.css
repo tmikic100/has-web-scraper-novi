@@ -15,6 +15,21 @@ body {
 header h1 { margin-bottom: 0.2rem; }
 header .sub { color: var(--muted); margin-top: 0; }
 
+.banner {
+  display: inline-block;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  border-radius: 6px;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+}
+.banner.error {
+  background: #fee2e2;
+  color: #991b1b;
+  border-color: #fca5a5;
+}
+
 main {
   display: grid;
   grid-template-columns: 1fr 1fr;
