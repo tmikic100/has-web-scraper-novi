@@ -1,6 +1,4 @@
-// After deploying the API to Render, replace this with its URL, e.g.
-// "https://athletics-api.onrender.com"
-const API_BASE_URL = "http://127.0.0.1:8123";
+const API_BASE_URL = "https://has-web-scraper-novi.onrender.com";
 
 async function api(path) {
   const res = await fetch(`${API_BASE_URL}${path}`);
