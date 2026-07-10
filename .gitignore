@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+
+# WA scoring pipeline is a separate, unrelated project (out of scope for the has.hr DB repo)
+wa_scoring.py
+score_agr_2025.py
+wa_scoring_cache.json
+AGR_2025_WA_points.csv
+*.pdf
