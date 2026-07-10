@@ -1,0 +1,9 @@
+tablice_sezone/
+__pycache__/
+*.pyc
+athletics_v1_backup.db
+wa_scoring_cache.json
+AGR_2025_WA_points.csv
+*.pdf
+docs/
+.git/

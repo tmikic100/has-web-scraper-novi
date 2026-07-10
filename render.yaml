@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: athletics-api
+    runtime: docker
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /health

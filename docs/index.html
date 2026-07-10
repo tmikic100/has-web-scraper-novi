@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Athletics DB</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+<header>
+  <h1>Athletics DB</h1>
+  <p class="sub">Live results, pulled straight from the database — updated weekly.</p>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>Athlete</h2>
+    <div class="row">
+      <input id="athlete-name" type="text" placeholder="Search by name...">
+      <button id="athlete-search-btn">Search</button>
+    </div>
+    <ul id="athlete-matches" class="matches"></ul>
+
+    <div id="athlete-detail" class="hidden">
+      <h3 id="athlete-detail-name"></h3>
+      <div class="row">
+        <label>Discipline:
+          <select id="discipline-select"></select>
+        </label>
+        <label>Year:
+          <select id="athlete-year-select">
+            <option value="">All years</option>
+          </select>
+        </label>
+      </div>
+      <canvas id="progression-chart" height="120"></canvas>
+      <table id="athlete-results-table" class="results-table">
+        <thead>
+          <tr><th>Year</th><th>Discipline</th><th>Mark</th><th>Date</th><th>City</th><th>Age group</th><th>Rank</th><th>Club</th><th>WA pts</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Club</h2>
+    <div class="row">
+      <input id="club-code" type="text" placeholder="Club code (e.g. AGR)">
+      <select id="club-year-select">
+        <option value="">All-time</option>
+      </select>
+      <button id="club-search-btn">Search</button>
+    </div>
+
+    <div id="club-detail" class="hidden">
+      <div id="club-stats" class="stats-grid"></div>
+      <h3>Records</h3>
+      <table id="club-records-table" class="results-table">
+        <thead>
+          <tr><th>Discipline</th><th>Mark</th><th>Athlete</th><th>Date</th><th>City</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -9,11 +9,23 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / 'athletics.db'
 
 app = FastAPI(title="Athletics Export API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "db_exists": DB_PATH.exists()}
 
 
 def get_conn():
@@ -36,6 +48,16 @@ def resolve_season_year(conn, year: Optional[int]) -> Optional[int]:
     if row is None:
         raise HTTPException(404, f"no season for year {year}")
     return row['id']
+
+
+@app.get("/seasons")
+def list_seasons():
+    conn = get_conn()
+    try:
+        rows = conn.execute('SELECT year FROM season ORDER BY year DESC').fetchall()
+        return [row['year'] for row in rows]
+    finally:
+        conn.close()
 
 
 @app.get("/athletes/search")
