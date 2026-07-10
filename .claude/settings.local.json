@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.has.hr)",
+      "WebFetch(domain:worldathletics.org)",
+      "Bash(sqlite3 athletics.db \".tables\")",
+      "Bash(sqlite3 athletics.db \".schema\")",
+      "Bash(python3 -c ' *)",
+      "Bash(python -c ' *)",
+      "PowerShell(python \"C:\\\\Users\\\\Janko\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Janko-Documents-hws\\\\2e19e1d9-61dc-4486-976f-747f3c51db32\\\\scratchpad\\\\inspect_db.py\")",
+      "Bash(curl -s -A \"Mozilla/5.0\" \"https://www.has.hr/index.php/klubovi/\" -o \"/tmp/klub1.html\")",
+      "Read(//tmp/**)"
+    ]
+  }
+}

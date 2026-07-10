@@ -143,6 +143,93 @@ def normalize_mark(mark_raw):
         return None
 
 
+# has.hr discipline names accumulated 24 years of inconsistent formatting for the *same*
+# event: bilingual "Croatian / English" text where only the English side drifted (typos,
+# abbreviations), thousands written with a dot ("1.000 m"), and relay names sometimes
+# missing their "m" suffix. DISCIPLINE_RAW_ALIASES below fixes a handful of one-off
+# malformed/abbreviated raw strings (confirmed against the real DB: each maps to an
+# established discipline that continues using the well-formed name in adjacent years) before
+# the general normalization runs. Genuinely different specs (e.g. different hurdle heights,
+# different implement weights) are deliberately NOT merged -- confirmed empirically by
+# checking whether two similar-looking names ever share the same age group across years;
+# see the migration conversation for the specific checks run.
+DISCIPLINE_RAW_ALIASES = {
+    '300 m pr.(76,2) / 300 m H.(76,2)':
+        '300 m prepone (h=0,762m) / 300 m Hurdles (h=0,762m)',
+    '100 m p.(76,2)D / 100 m H.(76,2)G':
+        '100 m prepone (h=0,762m) / 100 m Hurdles (h=0,762m)',
+    '100 m prepone (h=0,762m/d=8,5m / 100 m Hurdles (h=0,762m/d=8,5)':
+        '100 m prepone (h=0,762m/d=8,5m) / 100 m Hurdles (h=0,762m/d=8,5m)',
+    '100 m prepone (h=0,762m/d=8,5m / 100 m Hurdles (h=0,762m/d=8,5m)':
+        '100 m prepone (h=0,762m/d=8,5m) / 100 m Hurdles (h=0,762m/d=8,5m)',
+}
+
+# 'kadeti' (dd) always uses the h=0,762m/d=8m spec for 60mH in every other year -- their one
+# 2008 file just omitted the annotation entirely, unlike 'jj' whose 2008 bare form genuinely
+# continues as the long-running unannotated senior-track name in later years. Age-group-aware
+# because the raw text ("60 m prepone") is identical for both and only the age group
+# disambiguates which established discipline it belongs to.
+_AGE_GROUP_DISCIPLINE_OVERRIDES = {
+    ('60 m prepone', 'dd'): '60 m prepone (h=0,762m/d=8m)',
+}
+
+
+def _split_croatian_side(raw):
+    """Splits off the Croatian (left) side at the '/' that separates the bilingual name --
+    NOT any '/' nested inside a parenthetical annotation like '(h=0,762m/d=8,25m)'."""
+    depth = 0
+    for i, ch in enumerate(raw):
+        if ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth -= 1
+        elif ch == '/' and depth == 0:
+            return raw[:i].strip()
+    return raw.strip()
+
+
+def _canonicalize_hd_annotation(match):
+    return f'(h={match.group(1)}m/d={match.group(2)}m)'
+
+
+def normalize_discipline_name(raw, age_group_code=None):
+    override = _AGE_GROUP_DISCIPLINE_OVERRIDES.get((raw, age_group_code))
+    if override:
+        return override
+
+    raw = DISCIPLINE_RAW_ALIASES.get(raw, raw)
+    name = _split_croatian_side(raw)
+    name = re.sub(r'\s+', ' ', name).strip()
+    # thousands-dot (Croatian formatting): "1.000 m" -> "1000 m" (heights/weights use comma
+    # as the decimal separator, e.g. "0,762m", so a dot here is unambiguously a thousands sep)
+    name = re.sub(r'(?<=\d)\.(?=\d{3}\b)', '', name)
+    # relay compounds: "4 x 200" / "4 x 200 m" -> "4x200m"
+    if re.match(r'^\d+(\s*x\s*\d+)+', name, re.IGNORECASE) or re.match(r'^[\d-]+\s*m?$', name):
+        name = re.sub(r'\s*x\s*', 'x', name, flags=re.IGNORECASE)
+        name = re.sub(r'(\d)\s+m\b', r'\1m', name)
+        if re.search(r'\d$', name):
+            name += 'm'
+    # hurdle height/distance-to-first-hurdle annotation: normalize "m" suffix presence only
+    # -- the numeric values themselves are preserved as-is, since different d= values are
+    # confirmed-real distinct specs (e.g. dd/F 100mH genuinely uses both d=8m and d=8,25m
+    # across different years), not formatting noise.
+    name = re.sub(r'\(h=([\d,]+)m?/d=([\d,]+)m?\)', _canonicalize_hd_annotation, name)
+    return name
+
+
+def _resolve_club(club, location):
+    """Some rows (mostly elite results at international meets) have no club field at all in
+    the source -- ROW_RE's club group is not optional, so it greedily grabs the first token
+    of what is actually the location, leaving location empty (confirmed against raw source,
+    e.g. "1,88  Ana Šimić  05.05.1990  Belem  06.05.2012" -- no club column, "Belem" is the
+    venue). Real club codes are always all-uppercase; a non-uppercase "club" paired with an
+    empty location is the tell that this happened, so route it to IND and restore the
+    location text instead of keeping the bogus club code."""
+    if location == '' and club and not club.isupper():
+        return 'IND', club
+    return club, location
+
+
 def _parse_header(line):
     if ' - ' not in line:
         return None
@@ -235,6 +322,7 @@ def parse_standard_file(path):
             gd = row_match.groupdict()
             birth_year, birth_date = _parse_birth(gd['birth'], year)
             rank += 0 if wind_assisted else 1
+            club_code, location = _resolve_club(gd['club'], gd['location'].strip())
             rows.append(ParsedRow(
                 age_group_code=age_group_code,
                 age_group_name=category_label,
@@ -250,9 +338,9 @@ def parse_standard_file(path):
                 name=gd['name'].strip(),
                 birth_year=birth_year,
                 birth_date=birth_date,
-                club_code=gd['club'],
+                club_code=club_code,
                 relay_team_name=None,
-                location=gd['location'].strip(),
+                location=location,
                 perf_date=_to_iso(gd['date']),
                 source_file=str(path),
             ))
@@ -324,6 +412,7 @@ def parse_legacy_indoor_2002(path, gender):
             continue
         birth_year = _infer_century(born, year) if born.strip().isdigit() else None
         rank += 1
+        club_code = club.strip() or 'IND'
         rows.append(ParsedRow(
             age_group_code='ss',
             age_group_name=AGE_GROUP_NAMES['ss'],
@@ -339,7 +428,7 @@ def parse_legacy_indoor_2002(path, gender):
             name=re.sub(r'\s+', ' ', name).strip(),
             birth_year=birth_year,
             birth_date=None,
-            club_code=club.strip(),
+            club_code=club_code,
             relay_team_name=None,
             location=venue.strip(),
             perf_date=_to_iso(date.strip()) if re.match(r'^\d{2}\.\d{2}\.\d{4}$', date.strip()) else None,
@@ -356,3 +445,27 @@ def parse_file(path):
     if path.name == 'TWIn02.htm':
         return parse_legacy_indoor_2002(path, 'F')
     return parse_standard_file(path)
+
+
+def parse_clubs_page(path):
+    """Parses one page of the has.hr club directory (downloaded by
+    downloader.download_clubs into tablice_sezone/klubovi/page_N.html) into a list of
+    (code, name, city) tuples. Each club is a card: <h2 class="uk-h3"> has the full name,
+    followed by a <p class="uk-text-muted"> with the city and a plain <div> with the code."""
+    raw = Path(path).read_text(encoding='utf-8', errors='replace')
+    soup = BeautifulSoup(raw, 'html.parser')
+
+    clubs = []
+    for h2 in soup.find_all('h2', class_='uk-h3'):
+        name_tag = h2.find('a')
+        name = name_tag.get_text(strip=True) if name_tag else h2.get_text(strip=True)
+
+        city_p = h2.find_next_sibling('p', class_='uk-text-muted')
+        city = city_p.get_text(strip=True) if city_p else None
+
+        code_div = city_p.find_next_sibling('div') if city_p else None
+        code = code_div.get_text(strip=True) if code_div else None
+
+        if code:
+            clubs.append((code, name, city or None))
+    return clubs
