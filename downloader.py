@@ -42,7 +42,7 @@ def get_table_links():
     for a in soup.find_all("a", href=True):
         href = a["href"]
         if "/tabsez/" in href:
-            links.append(urljoin(SITE_ROOT, href))
+            links.append(urljoin(SITE_ROOT, href)) # type: ignore
 
     # de-duplicate while preserving order
     seen = set()

@@ -135,9 +135,56 @@ def get_athlete_single_year(athlete_id: int, year: int):
         conn.close()
 
 
+def _individual_best_scores(conn, club_id, season_id):
+    """One row per (athlete, discipline) -- that athlete's best-scoring individual
+    result for the club/season. Generalizes score_agr_2025.py's per-athlete-per-
+    discipline dedup (previously hardcoded to club AGR / year 2025) to any
+    club/year. discipline_id already encodes indoor vs outdoor (see the
+    `UNIQUE(name, female, indoor)` schema constraint), so grouping on it alone
+    reproduces that script's (discipline, indoor) split for free. Relays are
+    excluded (`r.info IS NULL` -- only relay races have team-name info set, see
+    build_db.py's load_row) since a relay score isn't one athlete's own
+    performance. Relies on race.wa_points already being computed at build time
+    (Loader.maybe_populate_wapoint / Scorer.score), so no WA-column mapping
+    needs to be re-derived here -- unscored (non-"standard") disciplines are
+    naturally excluded since their wa_points is NULL.
+    """
+    rows = conn.execute("""
+        SELECT ra.athlete_id, a.name AS athlete_name, d.id AS discipline_id,
+               d.name AS discipline, d.indoor, r.mark, r.mark_value, r.date,
+               r.city, r.wa_points
+        FROM clubathlete ca
+        JOIN raceathlete ra ON ra.athlete_id = ca.athlete_id
+        JOIN race r ON r.id = ra.race_id AND r.season_id = ca.season_id
+        JOIN discipline d ON d.id = r.discipline_id
+        JOIN athlete a ON a.id = ra.athlete_id
+        WHERE ca.club_id = ? AND ca.season_id = ?
+          AND r.info IS NULL AND r.wa_points IS NOT NULL
+    """, (club_id, season_id)).fetchall()
+
+    best = {}
+    for row in rows:
+        key = (row['athlete_id'], row['discipline_id'])
+        current = best.get(key)
+        if current is None or row['wa_points'] > current['wa_points']:
+            best[key] = row
+
+    ranked = sorted((dict(r) for r in best.values()), key=lambda r: -r['wa_points'])
+    prev_points, rank = None, 0
+    for i, r in enumerate(ranked, 1):
+        if r['wa_points'] != prev_points:
+            rank = i
+        r['rank'] = rank
+        prev_points = r['wa_points']
+    return ranked
+
+
 @app.get("/clubs/{short_name}/statistics")
 def get_club_statistics(short_name: str, year: int = Query(..., description="season year")):
-    """Roster size, races entered, podiums and WA points for a club in one season."""
+    """Roster size, races entered, podiums (raw participation counts) plus a
+    scored individual ranking list for a club in one season -- see
+    _individual_best_scores for why WA points aren't just summed/averaged
+    over every raceathlete row."""
     conn = get_conn()
     try:
         club_id = get_club_id(conn, short_name)
@@ -148,7 +195,7 @@ def get_club_statistics(short_name: str, year: int = Query(..., description="sea
         """, (club_id, season_id)).fetchone()[0]
 
         rows = conn.execute("""
-            SELECT ra.athlete_id, ra.race_id, ra.rank, r.wa_points
+            SELECT ra.race_id, ra.rank
             FROM clubathlete ca
             JOIN raceathlete ra ON ra.athlete_id = ca.athlete_id
             JOIN race r ON r.id = ra.race_id AND r.season_id = ca.season_id
@@ -157,7 +204,9 @@ def get_club_statistics(short_name: str, year: int = Query(..., description="sea
 
         distinct_races = {row['race_id'] for row in rows}
         podiums = sum(1 for row in rows if row['rank'] in (1, 2, 3))
-        wa_points = [row['wa_points'] for row in rows if row['wa_points'] is not None]
+
+        ranking = _individual_best_scores(conn, club_id, season_id)
+        points = [r['wa_points'] for r in ranking]
 
         return {
             "club": short_name,
@@ -165,8 +214,9 @@ def get_club_statistics(short_name: str, year: int = Query(..., description="sea
             "athletes": roster,
             "races_entered": len(distinct_races),
             "podium_finishes": podiums,
-            "wa_points_total": sum(wa_points),
-            "wa_points_avg": (sum(wa_points) / len(wa_points)) if wa_points else None,
+            "wa_points_total": sum(points),
+            "wa_points_avg": (sum(points) / len(points)) if points else None,
+            "ranking": ranking,
         }
     finally:
         conn.close()
