@@ -9,16 +9,19 @@
 <script src="../js/datatables.min.js"></script>
 <script src="../js/config.js"></script>
 <script src="../js/render-table.js"></script>
+<script src="../js/data-cache.js"></script>
 </head>
 <body>
 <div id="navbar"></div>
 
 <div class="p-3 m-0 border-0">
   <div class="row mb-3">
-    <div class="input-group mb-3 autocomplete">
+    <div class="input-group mb-1 autocomplete">
       <span class="input-group-text">Athlete name:</span>
       <input type="text" class="form-control autocomplete" id="athleteNameInput" placeholder="Type a name...">
+      <button id="athleteSearchBtn" type="button" class="btn btn-outline-secondary" style="display:none;">Search</button>
     </div>
+    <ul id="athleteMatchList" class="list-group mb-3" style="display:none; max-height:220px; overflow-y:auto;"></ul>
     <div class="input-group mb-3">
       <span class="input-group-text">Year:</span>
       <select id="yearSelect" class="form-select"></select>
@@ -44,7 +47,7 @@
 </div>
 
 <script type="module">
-import Autocomplete from "../js/autocomplete.js";
+import { setupSearch } from "../js/search-input.js";
 
 $(function () {
   $("#navbar").load("../templates/navbar.html", function () {
@@ -86,16 +89,18 @@ async function loadYear() {
 
 document.getElementById("getDataButton").addEventListener("click", loadYear);
 
-const input = document.getElementById("athleteNameInput");
-input.dataset.server = `${API_BASE_URL}/athletes/list`;
-input.dataset.valueField = "id";
-input.dataset.labelField = "label";
-new Autocomplete(input, {
-  maximumItems: 8,
-  onSelectItem: (item) => {
-    athleteId = item.value;
-    document.getElementById("getDataButton").disabled = false;
-  },
+getCachedList("athletes", `${API_BASE_URL}/athletes/list`).then(athletes => {
+  setupSearch({
+    inputId: "athleteNameInput",
+    buttonId: "athleteSearchBtn",
+    matchListId: "athleteMatchList",
+    items: athletes,
+    valueField: "id",
+    onSelect: (item) => {
+      athleteId = item.value;
+      document.getElementById("getDataButton").disabled = false;
+    },
+  });
 });
 
 loadSeasons();

@@ -9,16 +9,19 @@
 <script src="../js/datatables.min.js"></script>
 <script src="../js/config.js"></script>
 <script src="../js/render-table.js"></script>
+<script src="../js/data-cache.js"></script>
 </head>
 <body>
 <div id="navbar"></div>
 
 <div class="p-3 m-0 border-0">
   <div class="row mb-3">
-    <div class="input-group mb-3 autocomplete">
+    <div class="input-group mb-1 autocomplete">
       <span class="input-group-text">Club:</span>
       <input type="text" class="form-control autocomplete" id="clubNameInput" placeholder="Type a club name...">
+      <button id="clubSearchBtn" type="button" class="btn btn-outline-secondary" style="display:none;">Search</button>
     </div>
+    <ul id="clubMatchList" class="list-group mb-3" style="display:none; max-height:220px; overflow-y:auto;"></ul>
     <div class="input-group mb-3">
       <span class="input-group-text">Year:</span>
       <select id="yearSelect" class="form-select">
@@ -46,7 +49,7 @@
 </div>
 
 <script type="module">
-import Autocomplete from "../js/autocomplete.js";
+import { setupSearch } from "../js/search-input.js";
 
 $(function () {
   $("#navbar").load("../templates/navbar.html", function () {
@@ -92,16 +95,18 @@ async function loadRecords() {
 
 document.getElementById("getDataButton").addEventListener("click", loadRecords);
 
-const input = document.getElementById("clubNameInput");
-input.dataset.server = `${API_BASE_URL}/clubs/list`;
-input.dataset.valueField = "short_name";
-input.dataset.labelField = "label";
-new Autocomplete(input, {
-  maximumItems: 8,
-  onSelectItem: (item) => {
-    clubCode = item.value;
-    document.getElementById("getDataButton").disabled = false;
-  },
+getCachedList("clubs", `${API_BASE_URL}/clubs/list`).then(clubs => {
+  setupSearch({
+    inputId: "clubNameInput",
+    buttonId: "clubSearchBtn",
+    matchListId: "clubMatchList",
+    items: clubs,
+    valueField: "short_name",
+    onSelect: (item) => {
+      clubCode = item.value;
+      document.getElementById("getDataButton").disabled = false;
+    },
+  });
 });
 
 loadSeasons();

@@ -77,8 +77,31 @@
       </div>
     </div>
   </div>
+
+  <div class="card mt-4" style="max-width: 30rem;">
+    <div class="card-body">
+      <h5 class="card-title">Search style</h5>
+      <p class="card-text text-muted">How the name-search boxes on the Athlete/Club pages behave. Saved in this browser.</p>
+      <div class="form-check">
+        <input class="form-check-input" type="radio" name="searchMode" id="modeDropdown" value="dropdown">
+        <label class="form-check-label" for="modeDropdown">Dropdown suggestions as you type</label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" type="radio" name="searchMode" id="modeClassic" value="classic">
+        <label class="form-check-label" for="modeClassic">Classic — type, press Search, pick from a list</label>
+      </div>
+    </div>
+  </div>
 </div>
 
+<script src="js/data-cache.js"></script>
+<script>
+  const modeInputs = document.querySelectorAll('input[name="searchMode"]');
+  for (const el of modeInputs) {
+    el.checked = el.value === getSearchMode();
+    el.addEventListener("change", () => setSearchMode(el.value));
+  }
+</script>
 <script src="js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
