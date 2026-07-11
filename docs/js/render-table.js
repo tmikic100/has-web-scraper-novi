@@ -1,7 +1,26 @@
-// Shared DataTable renderer used by all four export pages. Builds a plain
-// Bootstrap table from an array of row objects + a column spec, then hands
-// it to DataTables for sorting + Excel export -- avoids re-deriving this
-// per page.
+// Shared DataTable wiring used by all export pages -- assumes a <table
+// id="DataTable"> already exists in #DataTableDiv, hands it to DataTables
+// for sorting + Excel export.
+function initDataTable() {
+  const table = $("#DataTable").DataTable({
+    paging: false,
+    ordering: true,
+    info: false,
+    searching: false,
+  });
+  new $.fn.DataTable.Buttons(table, {
+    buttons: [{
+      extend: "excel",
+      text: "Export Data",
+      className: "btn btn-outline-primary btn-light",
+    }],
+  }).container().appendTo($("#buttons"));
+  $(".buttons-excel").removeClass("btn-secondary");
+}
+
+// Builds a plain Bootstrap table from an array of row objects + a column
+// spec, then wires it up via initDataTable(). Used for flat (one row per
+// record) tables; see athleteCareer.html for the pivoted variant.
 function renderDataTable(rows, columns) {
   $("#DataTableDiv").empty();
   $(".buttons-excel").remove();
@@ -21,18 +40,5 @@ function renderDataTable(rows, columns) {
      </table>`
   );
 
-  const table = $("#DataTable").DataTable({
-    paging: false,
-    ordering: true,
-    info: false,
-    searching: false,
-  });
-  new $.fn.DataTable.Buttons(table, {
-    buttons: [{
-      extend: "excel",
-      text: "Export Data",
-      className: "btn btn-outline-primary btn-light",
-    }],
-  }).container().appendTo($("#buttons"));
-  $(".buttons-excel").removeClass("btn-secondary");
+  initDataTable();
 }

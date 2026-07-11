@@ -126,7 +126,7 @@ def search_athletes(name: str, exact: bool = False):
 
 def _career_rows(conn, athlete_id: int, season_id: Optional[int] = None):
     query = """
-        SELECT s.year, d.name AS discipline, d.indoor, r.mark, r.mark_value,
+        SELECT s.year, d.name AS discipline, d.indoor, d.higher_is_better, r.mark, r.mark_value,
                r.wind, r.city, r.date, r.wa_points, r.info,
                ag.tech_name AS agegroup, ra.rank,
                ra.season_best,

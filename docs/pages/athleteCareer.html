@@ -66,18 +66,6 @@ let athleteId = null;
 let athleteResults = [];
 let chart = null;
 
-const COLUMNS = [
-  { field: "year", label: "Year" },
-  { field: "discipline", label: "Discipline" },
-  { field: "mark", label: "Mark" },
-  { field: "date", label: "Date" },
-  { field: "city", label: "City" },
-  { field: "agegroup", label: "Age group" },
-  { field: "rank", label: "Rank" },
-  { field: "club", label: "Club" },
-  { field: "wa_points", label: "WA pts" },
-];
-
 async function loadCareer() {
   if (!athleteId) return;
   $("#spinner").show();
@@ -86,11 +74,74 @@ async function loadCareer() {
     const data = await res.json();
     athleteResults = data.results;
     $("#resultArea").show();
-    renderDataTable(athleteResults, COLUMNS);
+    renderProgressionTable(athleteResults);
     populateDisciplines();
   } finally {
     $("#spinner").hide();
   }
+}
+
+function disciplineLabel(discipline, indoor) {
+  return indoor ? `${discipline} (dvorana)` : discipline;
+}
+
+// One row per discipline, one column per year -- cell is that year's
+// season-best mark (a discipline can have many races in a season, but only
+// one is season_best) -- plus PB/PB Year/WA pts columns, mirroring the old
+// backend's GetAthleteCarrer pivot instead of a flat one-row-per-race list.
+function renderProgressionTable(results) {
+  const seasonBest = results.filter(r => r.season_best);
+  const years = [...new Set(seasonBest.map(r => r.year))].sort((a, b) => a - b);
+
+  const disciplines = new Map(); // "name||indoor" -> { label, higherIsBetter, byYear }
+  for (const r of seasonBest) {
+    const key = `${r.discipline}||${r.indoor}`;
+    if (!disciplines.has(key)) {
+      disciplines.set(key, {
+        label: disciplineLabel(r.discipline, r.indoor),
+        higherIsBetter: !!r.higher_is_better,
+        byYear: new Map(),
+      });
+    }
+    disciplines.get(key).byYear.set(r.year, r);
+  }
+
+  const rows = [...disciplines.values()].sort((a, b) => a.label.localeCompare(b.label));
+  for (const d of rows) {
+    d.pb = [...d.byYear.values()]
+      .filter(r => r.mark_value != null)
+      .reduce((best, r) => {
+        if (!best) return r;
+        const better = d.higherIsBetter ? r.mark_value > best.mark_value : r.mark_value < best.mark_value;
+        return better ? r : best;
+      }, null);
+  }
+
+  const thead = ["Discipline", ...years, "PB", "PB Year", "WA pts"]
+    .map(h => `<th class="text-center">${h}</th>`).join("");
+  const tbody = rows.map(d => {
+    const yearCells = years.map(y => {
+      const r = d.byYear.get(y);
+      return `<td class="text-center">${r ? r.mark : "-"}</td>`;
+    }).join("");
+    const pb = d.pb;
+    return `<tr>
+      <td class="text-center">${d.label}</td>
+      ${yearCells}
+      <td class="text-center">${pb ? pb.mark : "-"}</td>
+      <td class="text-center">${pb ? pb.year : "-"}</td>
+      <td class="text-center">${pb && pb.wa_points != null ? pb.wa_points : "-"}</td>
+    </tr>`;
+  }).join("");
+
+  $("#DataTableDiv").empty();
+  $(".buttons-excel").remove();
+  $("#DataTableDiv").append(
+    `<table id="DataTable" class="table table-bordered table-striped border-dark table-primary">
+       <thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody>
+     </table>`
+  );
+  initDataTable();
 }
 
 function populateDisciplines() {
