@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Club statistics — Athletics DB</title>
+<link href="../css/bootstrap.min.css" rel="stylesheet">
+<script src="../js/jquery-3.6.1.min.js"></script>
+<script src="../js/datatables.min.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/render-table.js"></script>
+</head>
+<body>
+<div id="navbar"></div>
+
+<div class="p-3 m-0 border-0">
+  <div class="row mb-3">
+    <div class="input-group mb-3 autocomplete">
+      <span class="input-group-text">Club:</span>
+      <input type="text" class="form-control autocomplete" id="clubNameInput" placeholder="Type a club name...">
+    </div>
+    <div class="input-group mb-3">
+      <span class="input-group-text">Year:</span>
+      <select id="yearSelect" class="form-select"></select>
+    </div>
+    <div class="col" id="buttons">
+      <button id="getDataButton" type="button" class="btn btn-outline-primary" disabled>Get Data</button>
+    </div>
+  </div>
+
+  <div class="row mb-3">
+    <div class="d-flex justify-content-center">
+      <div id="spinner" class="spinner-border text-primary" role="status" style="display:none;">
+        <span class="sr-only">Loading...</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="statTiles" class="row row-cols-2 row-cols-md-4 g-3 mb-4 text-center"></div>
+
+  <h4>Individual ranking</h4>
+  <p class="text-muted">Each athlete's best WA-scored individual result per discipline this season.</p>
+  <div class="row">
+    <div class="col">
+      <div id="DataTableDiv" class="table-responsive-sm"></div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import Autocomplete from "../js/autocomplete.js";
+
+$(function () {
+  $("#navbar").load("../templates/navbar.html", function () {
+    $("#clubStatisticsNav").first().addClass("active");
+  });
+});
+
+let clubCode = null;
+
+const COLUMNS = [
+  { field: "rank", label: "Rank" },
+  { field: "discipline", label: "Discipline" },
+  { field: "athlete_name", label: "Athlete" },
+  { field: "mark", label: "Mark" },
+  { field: "date", label: "Date" },
+  { field: "city", label: "City" },
+  { field: "wa_points", label: "WA pts" },
+];
+
+async function loadSeasons() {
+  const seasons = await (await fetch(`${API_BASE_URL}/seasons`)).json();
+  document.getElementById("yearSelect").innerHTML =
+    seasons.map(y => `<option value="${y}">${y}</option>`).join("");
+}
+
+function renderTiles(stats) {
+  const tiles = [
+    ["Athletes", stats.athletes],
+    ["Races entered", stats.races_entered],
+    ["Podium finishes", stats.podium_finishes],
+    ["Avg WA points", stats.wa_points_avg ? stats.wa_points_avg.toFixed(0) : "-"],
+  ];
+  document.getElementById("statTiles").innerHTML = tiles.map(([label, value]) => `
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="fs-3">${value}</div>
+          <div class="text-muted">${label}</div>
+        </div>
+      </div>
+    </div>`).join("");
+}
+
+async function loadStatistics() {
+  const year = document.getElementById("yearSelect").value;
+  if (!clubCode || !year) return;
+  $("#spinner").show();
+  try {
+    const res = await fetch(`${API_BASE_URL}/clubs/${clubCode}/statistics?year=${year}`);
+    const data = await res.json();
+    renderTiles(data);
+    renderDataTable(data.ranking, COLUMNS);
+  } finally {
+    $("#spinner").hide();
+  }
+}
+
+document.getElementById("getDataButton").addEventListener("click", loadStatistics);
+
+const input = document.getElementById("clubNameInput");
+input.dataset.server = `${API_BASE_URL}/clubs/list`;
+input.dataset.valueField = "short_name";
+input.dataset.labelField = "label";
+new Autocomplete(input, {
+  maximumItems: 8,
+  onSelectItem: (item) => {
+    clubCode = item.value;
+    document.getElementById("getDataButton").disabled = false;
+  },
+});
+
+loadSeasons();
+</script>
+<script src="../js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

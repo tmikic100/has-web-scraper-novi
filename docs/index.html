@@ -4,70 +4,81 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Athletics DB</title>
-<link rel="stylesheet" href="style.css">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<link href="css/bootstrap.min.css" rel="stylesheet">
+<link href="css/navbar.css" rel="stylesheet">
 </head>
 <body>
-<header>
+<nav class="navbar navbar-expand-lg bg-light">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="index.html">Athletics DB</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav">
+              <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Athlete</a>
+                <ul class="dropdown-menu">
+                  <li><a class="dropdown-item" href="pages/athleteCareer.html">Career</a></li>
+                  <li><a class="dropdown-item" href="pages/athleteSingleYear.html">Single year</a></li>
+                </ul>
+              </li>
+              <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Club</a>
+                <ul class="dropdown-menu">
+                  <li><a class="dropdown-item" href="pages/clubStatistics.html">Statistics</a></li>
+                  <li><a class="dropdown-item" href="pages/clubRecords.html">Records</a></li>
+                </ul>
+              </li>
+            </ul>
+        </div>
+    </div>
+</nav>
+
+<div class="container p-4">
   <h1>Athletics DB</h1>
-  <p class="sub">Live results, pulled straight from the database — updated weekly.</p>
-  <p id="status-banner" class="banner hidden"></p>
-</header>
+  <p class="text-muted">Croatian athletics results, pulled straight from the database — updated weekly.</p>
 
-<main>
-  <section class="panel">
-    <h2>Athlete</h2>
-    <div class="row">
-      <input id="athlete-name" type="text" placeholder="Search by name...">
-      <button id="athlete-search-btn">Search</button>
-    </div>
-    <ul id="athlete-matches" class="matches"></ul>
-
-    <div id="athlete-detail" class="hidden">
-      <h3 id="athlete-detail-name"></h3>
-      <div class="row">
-        <label>Discipline:
-          <select id="discipline-select"></select>
-        </label>
-        <label>Year:
-          <select id="athlete-year-select">
-            <option value="">All years</option>
-          </select>
-        </label>
+  <div class="row row-cols-1 row-cols-md-2 g-4 mt-2">
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <h5 class="card-title">Athlete career</h5>
+          <p class="card-text">Full result history for one athlete, with a progression chart per discipline.</p>
+          <a href="pages/athleteCareer.html" class="btn btn-outline-primary">Open</a>
+        </div>
       </div>
-      <canvas id="progression-chart" height="120"></canvas>
-      <table id="athlete-results-table" class="results-table">
-        <thead>
-          <tr><th>Year</th><th>Discipline</th><th>Mark</th><th>Date</th><th>City</th><th>Age group</th><th>Rank</th><th>Club</th><th>WA pts</th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
     </div>
-  </section>
-
-  <section class="panel">
-    <h2>Club</h2>
-    <div class="row">
-      <input id="club-code" type="text" placeholder="Club code (e.g. AGR)">
-      <select id="club-year-select">
-        <option value="">All-time</option>
-      </select>
-      <button id="club-search-btn">Search</button>
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <h5 class="card-title">Athlete single year</h5>
+          <p class="card-text">One athlete's results for a single season.</p>
+          <a href="pages/athleteSingleYear.html" class="btn btn-outline-primary">Open</a>
+        </div>
+      </div>
     </div>
-
-    <div id="club-detail" class="hidden">
-      <div id="club-stats" class="stats-grid"></div>
-      <h3>Records</h3>
-      <table id="club-records-table" class="results-table">
-        <thead>
-          <tr><th>Discipline</th><th>Mark</th><th>Athlete</th><th>Date</th><th>City</th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <h5 class="card-title">Club statistics</h5>
+          <p class="card-text">Roster size, races entered, podiums, and a scored individual ranking for a club's season.</p>
+          <a href="pages/clubStatistics.html" class="btn btn-outline-primary">Open</a>
+        </div>
+      </div>
     </div>
-  </section>
-</main>
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <h5 class="card-title">Club records</h5>
+          <p class="card-text">Best mark per discipline for a club's roster — one season or all-time.</p>
+          <a href="pages/clubRecords.html" class="btn btn-outline-primary">Open</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
-<script src="app.js"></script>
+<script src="js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

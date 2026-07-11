@@ -60,6 +60,45 @@ def list_seasons():
         conn.close()
 
 
+@app.get("/athletes/list")
+def list_athletes():
+    """Full id/label list for client-side autocomplete (fetched once, filtered
+    in the browser) rather than a live per-keystroke search endpoint."""
+    conn = get_conn()
+    try:
+        rows = conn.execute('SELECT id, name, birth_year FROM athlete ORDER BY name').fetchall()
+        return [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "label": f"{row['name']} ({row['birth_year']})" if row["birth_year"] else row["name"],
+            }
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+
+@app.get("/clubs/list")
+def list_clubs():
+    """Full club list for client-side autocomplete, same rationale as /athletes/list."""
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT short_name, name, city FROM club WHERE short_name != 'IND' ORDER BY name"
+        ).fetchall()
+        return [
+            {
+                "short_name": row["short_name"],
+                "name": row["name"] or row["short_name"],
+                "label": f"{row['name']} ({row['short_name']})" if row["name"] else row["short_name"],
+            }
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+
 @app.get("/athletes/search")
 def search_athletes(name: str, exact: bool = False):
     """Resolve a name to athlete id(s) — matches current name or any past alias."""

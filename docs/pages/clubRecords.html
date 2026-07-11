@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Club records — Athletics DB</title>
+<link href="../css/bootstrap.min.css" rel="stylesheet">
+<script src="../js/jquery-3.6.1.min.js"></script>
+<script src="../js/datatables.min.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/render-table.js"></script>
+</head>
+<body>
+<div id="navbar"></div>
+
+<div class="p-3 m-0 border-0">
+  <div class="row mb-3">
+    <div class="input-group mb-3 autocomplete">
+      <span class="input-group-text">Club:</span>
+      <input type="text" class="form-control autocomplete" id="clubNameInput" placeholder="Type a club name...">
+    </div>
+    <div class="input-group mb-3">
+      <span class="input-group-text">Year:</span>
+      <select id="yearSelect" class="form-select">
+        <option value="">All-time</option>
+      </select>
+    </div>
+    <div class="col" id="buttons">
+      <button id="getDataButton" type="button" class="btn btn-outline-primary" disabled>Get Data</button>
+    </div>
+  </div>
+
+  <div class="row mb-3">
+    <div class="d-flex justify-content-center">
+      <div id="spinner" class="spinner-border text-primary" role="status" style="display:none;">
+        <span class="sr-only">Loading...</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col">
+      <div id="DataTableDiv" class="table-responsive-sm"></div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import Autocomplete from "../js/autocomplete.js";
+
+$(function () {
+  $("#navbar").load("../templates/navbar.html", function () {
+    $("#clubRecordsNav").first().addClass("active");
+  });
+});
+
+let clubCode = null;
+
+const COLUMNS = [
+  {
+    label: "Discipline",
+    format: r => `${r.discipline}${r.female ? " (W)" : " (M)"}${r.indoor ? " indoor" : ""}`,
+  },
+  { field: "mark", label: "Mark" },
+  { field: "athlete_name", label: "Athlete" },
+  { field: "date", label: "Date" },
+  { field: "city", label: "City" },
+];
+
+async function loadSeasons() {
+  const seasons = await (await fetch(`${API_BASE_URL}/seasons`)).json();
+  const select = document.getElementById("yearSelect");
+  select.innerHTML = `<option value="">All-time</option>` +
+    seasons.map(y => `<option value="${y}">${y}</option>`).join("");
+}
+
+async function loadRecords() {
+  if (!clubCode) return;
+  const year = document.getElementById("yearSelect").value;
+  const url = year
+    ? `${API_BASE_URL}/clubs/${clubCode}/records?year=${year}`
+    : `${API_BASE_URL}/clubs/${clubCode}/records`;
+  $("#spinner").show();
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    renderDataTable(data.records, COLUMNS);
+  } finally {
+    $("#spinner").hide();
+  }
+}
+
+document.getElementById("getDataButton").addEventListener("click", loadRecords);
+
+const input = document.getElementById("clubNameInput");
+input.dataset.server = `${API_BASE_URL}/clubs/list`;
+input.dataset.valueField = "short_name";
+input.dataset.labelField = "label";
+new Autocomplete(input, {
+  maximumItems: 8,
+  onSelectItem: (item) => {
+    clubCode = item.value;
+    document.getElementById("getDataButton").disabled = false;
+  },
+});
+
+loadSeasons();
+</script>
+<script src="../js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
