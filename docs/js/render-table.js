@@ -1,12 +1,19 @@
 // Shared DataTable wiring used by all export pages -- assumes a <table
 // id="DataTable"> already exists in #DataTableDiv, hands it to DataTables
-// for sorting + Excel export.
-function initDataTable() {
+// for sorting + Excel export. `order` is DataTables' initial sort (default
+// [[0, 'asc']] -- its own out-of-the-box behavior, made explicit here so a
+// caller that already built rows in a deliberate order, like
+// athleteCareer.html's "most years first," can pass order=[] to keep that
+// order instead of DataTables silently re-sorting column 0 ascending on
+// load. Clicking a header still sorts interactively either way -- this only
+// changes what's shown before the user clicks anything.
+function initDataTable(order = [[0, 'asc']]) {
   const table = $("#DataTable").DataTable({
     paging: false,
     ordering: true,
     info: false,
     searching: false,
+    order,
   });
   new $.fn.DataTable.Buttons(table, {
     buttons: [{

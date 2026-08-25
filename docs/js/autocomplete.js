@@ -643,11 +643,33 @@ class Autocomplete {
       this._dropElement.style.left = left + "px";
     }
 
-    // Overflow bottom
-    const h = document.body.offsetHeight;
-    const bottom = this._searchInput.getBoundingClientRect().y + window.pageYOffset + this._dropElement.offsetHeight;
+    // `top` was never set at all before this line: with position:absolute
+    // and no top, the browser falls back to a "static position" guess for
+    // where top:auto would have placed it -- unreliable for an
+    // out-of-flow-positioned child of a flex container (.input-group is
+    // display:flex), which is how this ended up rendering at the top of the
+    // page instead of under the input. Anchoring explicitly below the input
+    // (offsetTop/offsetLeft share the same offsetParent-relative coordinate
+    // system) fixes that, and the "overflow bottom" translateY flip below
+    // still works correctly since it's relative to whatever top ends up
+    // being.
+    this._dropElement.style.top = (this._searchInput.offsetTop + this._searchInput.offsetHeight) + "px";
 
-    const hdiff = h - bottom;
+    // Overflow bottom -- compare against the actual visible VIEWPORT, not
+    // document.body.offsetHeight (the whole page's height). A short page
+    // (e.g. before any search results are loaded, when the page is barely
+    // taller than the input itself) would otherwise make this think there's
+    // no room below even though the browser window still has plenty of
+    // empty viewport space visible beneath the input -- flipping the list
+    // up over the input's top border instead of dropping down normally.
+    // Also adds the input's own height, which this previously omitted --
+    // the dropdown's true bottom edge is (input top + input height +
+    // dropdown height), not (input top + dropdown height).
+    const bottom = this._searchInput.getBoundingClientRect().y + window.pageYOffset
+      + this._searchInput.offsetHeight + this._dropElement.offsetHeight;
+    const viewportBottom = window.pageYOffset + window.innerHeight;
+
+    const hdiff = viewportBottom - bottom;
     if (hdiff < 0) {
       // We display above input
       this._dropElement.style.transform = "translateY(calc(-100% - " + this._searchInput.offsetHeight + "px))";

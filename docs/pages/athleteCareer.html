@@ -181,11 +181,38 @@ function renderProgressionTable(results) {
        <thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody>
      </table>`
   );
-  initDataTable();
+  // order=[] keeps the "most years first" row order we just built instead
+  // of DataTables silently re-sorting column 0 (Discipline) alphabetically
+  // on load -- see render-table.js's initDataTable.
+  initDataTable([]);
+}
+
+// Plain discipline-name -> distinct-year count (indoor/outdoor merged,
+// unlike renderProgressionTable's per-discipline rows -- this feeds the
+// chart's discipline dropdown, and renderChart itself filters by discipline
+// name only, so counting years the same way keeps the two consistent).
+function disciplineYearCounts(results) {
+  const yearsByDiscipline = new Map();
+  for (const r of results) {
+    if (r.mark_value == null) continue;
+    if (!yearsByDiscipline.has(r.discipline)) yearsByDiscipline.set(r.discipline, new Set());
+    yearsByDiscipline.get(r.discipline).add(r.year);
+  }
+  return new Map([...yearsByDiscipline].map(([d, years]) => [d, years.size]));
 }
 
 function populateDisciplines() {
-  const disciplines = [...new Set(athleteResults.map(r => r.discipline))].sort();
+  const yearCounts = disciplineYearCounts(athleteResults);
+  // Same "most years first" ordering as the table below -- this dropdown is
+  // the first thing next to the chart, so it needs to match, and defaulting
+  // the chart to disciplines[0] now means it opens on the athlete's most
+  // established event instead of whatever sorts first alphabetically.
+  const disciplines = [...new Set(athleteResults.map(r => r.discipline))].sort((a, b) => {
+    const yearsA = yearCounts.get(a) ?? 0;
+    const yearsB = yearCounts.get(b) ?? 0;
+    if (yearsB !== yearsA) return yearsB - yearsA;
+    return a.localeCompare(b);
+  });
   const select = document.getElementById("disciplineSelect");
   select.innerHTML = disciplines.map(d => `<option value="${d}">${d}</option>`).join("");
   if (disciplines.length) renderChart(disciplines[0]);
