@@ -684,7 +684,7 @@ def get_target_rows(conn, season_year, discipline_name=None):
 
 
 def process_ranking(conn, cache, season_year, force_refresh, group_limit=None, discipline_name=None,
-                     scrape_date=None, scrape_week=None):
+                     scrape_date=None, scrape_week=None, scope='all'):
     """The main driver: fetches every eligible race for the season, groups
     them by (discipline, gender, indoor/outdoor), and for each group
     computes national/world/europe ranks and writes them back to the DB.
@@ -694,7 +694,20 @@ def process_ranking(conn, cache, season_year, force_refresh, group_limit=None, d
     before) -- exactly one of the two should be given: scrape_date for a
     real run (today's date), scrape_week for a --test run (the --test-week
     number). This is what lets a race's rank change over successive scrapes
-    while the race's own mark/date (its "SB") never does -- see main()."""
+    while the race's own mark/date (its "SB") never does -- see main().
+
+    scope: 'national', 'international', or 'all' (default). National ranking
+    is pure has.hr-vs-has.hr comparison (cheap, no network); international
+    (world/europe) needs many worldathletics.org requests per discipline
+    (slow, the whole reason update-international-ranking.yml runs on its own
+    schedule instead of every week alongside build_db.py). Restricting scope
+    means only that scope's columns get computed AND written this run --
+    both the raceathlete UPDATE and the rank_snapshot write are scope-aware
+    (see below), so a national-only run can never wipe out international
+    ranks a separate run already wrote for the same raceathlete (or the same
+    scrape_date/week), and vice versa."""
+    do_national = scope in ('national', 'all')
+    do_international = scope in ('international', 'all')
     target_rows = get_target_rows(conn, season_year, discipline_name)
     print(f"Season {season_year}: {len(target_rows)} individual results to check.", flush=True)
 
@@ -761,96 +774,161 @@ def process_ranking(conn, cache, season_year, force_refresh, group_limit=None, d
               f"{len(athlete_info)} athletes / {race_count} races", flush=True)
 
         # National ranking: pure has.hr-vs-has.hr comparison, no network call.
-        national_results = compute_national_ranks(athlete_info)
-        print(f"    national (has.hr-derived): {len(national_results)}/{race_count} races ranked", flush=True)
-
-        # A cheap WA Croatia-list scan, used ONLY to determine which
-        # athletes WA has ever heard of at all (the underscore `_` throws
-        # away the first return value -- the actual bracket ranks -- since
-        # we don't want WA's Croatia list to produce national ranks
-        # anymore, just the presence signal).
-        _, seen_names = scan_scope(
-            cache, force_refresh, group_slug, disc_slug, gender, season_year,
-            'countries', 'cro', athlete_info, set(),
-        )
-        # A set comprehension: every athlete_id whose name_key showed up
-        # anywhere in the Croatia-list scan.
-        gated_athlete_ids = {aid for aid, info in athlete_info.items() if info['name_key'] in seen_names}
-        print(f"    presence gate (WA cro list): {len(gated_athlete_ids)}/{len(athlete_info)} athletes recognized",
-              flush=True)
+        national_results = {}
+        if do_national:
+            national_results = compute_national_ranks(athlete_info)
+            print(f"    national (has.hr-derived): {len(national_results)}/{race_count} races ranked", flush=True)
 
         world_results, europe_results = {}, {}
-        if gated_athlete_ids:
-            # A dict comprehension filtering athlete_info down to only the
-            # WA-recognized athletes, before running the much more
-            # expensive world/europe scans -- this is the actual cost
-            # savings the presence gate buys us.
-            gated_info = {aid: athlete_info[aid] for aid in gated_athlete_ids}
-            gated_race_count = sum(len(a['races']) for a in gated_info.values())
-            world_results, _ = scan_scope(
+        if do_international:
+            # A cheap WA Croatia-list scan, used ONLY to determine which
+            # athletes WA has ever heard of at all (the underscore `_`
+            # throws away the first return value -- the actual bracket
+            # ranks -- since we don't want WA's Croatia list to produce
+            # national ranks anymore, just the presence signal).
+            _, seen_names = scan_scope(
                 cache, force_refresh, group_slug, disc_slug, gender, season_year,
-                'world', None, gated_info, INTERNATIONAL_DERIVED_BRACKETS,
+                'countries', 'cro', athlete_info, set(),
             )
-            print(f"    world: resolved {len(world_results)}/{gated_race_count} races", flush=True)
-            europe_results, _ = scan_scope(
-                cache, force_refresh, group_slug, disc_slug, gender, season_year,
-                'area', 'europe', gated_info, INTERNATIONAL_DERIVED_BRACKETS,
-            )
-            print(f"    europe: resolved {len(europe_results)}/{gated_race_count} races", flush=True)
+            # A set comprehension: every athlete_id whose name_key showed up
+            # anywhere in the Croatia-list scan.
+            gated_athlete_ids = {aid for aid, info in athlete_info.items() if info['name_key'] in seen_names}
+            print(f"    presence gate (WA cro list): {len(gated_athlete_ids)}/{len(athlete_info)} "
+                  f"athletes recognized", flush=True)
 
+            if gated_athlete_ids:
+                # A dict comprehension filtering athlete_info down to only
+                # the WA-recognized athletes, before running the much more
+                # expensive world/europe scans -- this is the actual cost
+                # savings the presence gate buys us.
+                gated_info = {aid: athlete_info[aid] for aid in gated_athlete_ids}
+                gated_race_count = sum(len(a['races']) for a in gated_info.values())
+                world_results, _ = scan_scope(
+                    cache, force_refresh, group_slug, disc_slug, gender, season_year,
+                    'world', None, gated_info, INTERNATIONAL_DERIVED_BRACKETS,
+                )
+                print(f"    world: resolved {len(world_results)}/{gated_race_count} races", flush=True)
+                europe_results, _ = scan_scope(
+                    cache, force_refresh, group_slug, disc_slug, gender, season_year,
+                    'area', 'europe', gated_info, INTERNATIONAL_DERIVED_BRACKETS,
+                )
+                print(f"    europe: resolved {len(europe_results)}/{gated_race_count} races", flush=True)
+
+        # Each entry keeps the raw per-scope dicts (rather than a flattened
+        # tuple) so the UPDATE/INSERT statements below can each pick out
+        # just their own scope's columns.
         updates = []
         for info in athlete_info.values():
             for r in info['races']:
                 raceathlete_id = r['raceathlete_id']
                 # .get(raceathlete_id, {}) returns an empty dict if this
                 # race has no entry at all (e.g. never resolved in that
-                # scope), so the .get('senior') etc. calls just below are
-                # always safe (an empty dict's .get() just returns None).
+                # scope, or that scope wasn't even computed this run), so
+                # the .get('senior') etc. calls just below are always safe
+                # (an empty dict's .get() just returns None).
                 nat = national_results.get(raceathlete_id, {})
                 w = world_results.get(raceathlete_id, {})
                 eu = europe_results.get(raceathlete_id, {})
                 if not nat and not w and not eu:
                     # Nothing at all to write for this race -- skip it
-                    # rather than issue a no-op UPDATE full of NULLs.
+                    # rather than issue a no-op write full of NULLs.
                     continue
-                updates.append((
-                    w.get('senior'), w.get('u23'), w.get('u20'), w.get('u18'),
-                    eu.get('senior'), eu.get('u23'), eu.get('u20'), eu.get('u18'),
-                    nat.get('senior'), nat.get('u23'), nat.get('u20'), nat.get('u18'),
-                    nat.get('u16'), nat.get('u14'),
-                    raceathlete_id,
-                ))
-        conn.executemany("""
-            UPDATE raceathlete SET
-                world_rank_senior = ?, world_rank_u23 = ?, world_rank_u20 = ?, world_rank_u18 = ?,
-                europe_rank_senior = ?, europe_rank_u23 = ?, europe_rank_u20 = ?, europe_rank_u18 = ?,
-                national_rank_senior = ?, national_rank_u23 = ?, national_rank_u20 = ?,
-                national_rank_u18 = ?, national_rank_u16 = ?, national_rank_u14 = ?
-            WHERE id = ?
-        """, updates)
-        # Same rank values, but as a new rank_snapshot row per race instead
-        # of an overwrite -- this is the actual history. INSERT OR REPLACE
-        # relies on rank_snapshot's partial UNIQUE indexes (one on
-        # (raceathlete_id, scrape_date), one on (raceathlete_id,
-        # scrape_week)) to make re-running the SAME scrape_date/scrape_week
-        # idempotent (replaces that snapshot) rather than piling up
-        # duplicate rows for an accidental double-run.
-        conn.executemany("""
-            INSERT OR REPLACE INTO rank_snapshot(
-                raceathlete_id, scrape_date, scrape_week,
-                world_rank_senior, world_rank_u23, world_rank_u20, world_rank_u18,
-                europe_rank_senior, europe_rank_u23, europe_rank_u20, europe_rank_u18,
-                national_rank_senior, national_rank_u23, national_rank_u20,
-                national_rank_u18, national_rank_u16, national_rank_u14
-            ) VALUES (?,?,?, ?,?,?,?, ?,?,?,?, ?,?,?,?,?,?)
-        """, [
-            (raceathlete_id, scrape_date, scrape_week,
-             w_senior, w_u23, w_u20, w_u18, eu_senior, eu_u23, eu_u20, eu_u18,
-             nat_senior, nat_u23, nat_u20, nat_u18, nat_u16, nat_u14)
-            for (w_senior, w_u23, w_u20, w_u18, eu_senior, eu_u23, eu_u20, eu_u18,
-                 nat_senior, nat_u23, nat_u20, nat_u18, nat_u16, nat_u14,
-                 raceathlete_id) in updates
-        ])
+                updates.append((raceathlete_id, nat, w, eu))
+
+        written = 0
+        national_updates, international_updates = [], []
+        if do_national:
+            # Only touches the national_rank_* columns -- an international-
+            # only run never reaches this branch at all, so it can't stomp
+            # national ranks written by a separate national-only run.
+            national_updates = [(raceathlete_id, nat) for raceathlete_id, nat, w, eu in updates if nat]
+            conn.executemany("""
+                UPDATE raceathlete SET
+                    national_rank_senior = ?, national_rank_u23 = ?, national_rank_u20 = ?,
+                    national_rank_u18 = ?, national_rank_u16 = ?, national_rank_u14 = ?
+                WHERE id = ?
+            """, [
+                (nat.get('senior'), nat.get('u23'), nat.get('u20'), nat.get('u18'),
+                 nat.get('u16'), nat.get('u14'), raceathlete_id)
+                for raceathlete_id, nat in national_updates
+            ])
+            written += len(national_updates)
+        if do_international:
+            # Symmetric: only touches world_rank_*/europe_rank_*, so a
+            # national-only run (where w/eu are always {}) never reaches
+            # this branch and can't null out international ranks.
+            international_updates = [(raceathlete_id, w, eu) for raceathlete_id, nat, w, eu in updates if (w or eu)]
+            conn.executemany("""
+                UPDATE raceathlete SET
+                    world_rank_senior = ?, world_rank_u23 = ?, world_rank_u20 = ?, world_rank_u18 = ?,
+                    europe_rank_senior = ?, europe_rank_u23 = ?, europe_rank_u20 = ?, europe_rank_u18 = ?
+                WHERE id = ?
+            """, [
+                (w.get('senior'), w.get('u23'), w.get('u20'), w.get('u18'),
+                 eu.get('senior'), eu.get('u23'), eu.get('u20'), eu.get('u18'), raceathlete_id)
+                for raceathlete_id, w, eu in international_updates
+            ])
+            written += len(international_updates)
+
+        # rank_snapshot rows use UPSERT (not the previous blind INSERT OR
+        # REPLACE) for the same reason as the UPDATEs above: a national-only
+        # and an international-only run can legitimately target the SAME
+        # (raceathlete_id, scrape_date/week) snapshot (e.g. --test runs
+        # commonly rank the same --test-week for both scopes separately) --
+        # ON CONFLICT DO UPDATE SET only the scope's own columns leaves
+        # whatever the other scope already wrote for that snapshot alone,
+        # instead of blowing it away with NULLs. Exactly one of
+        # scrape_date/scrape_week is ever set (see the docstring above), so
+        # the conflict target matches whichever partial UNIQUE index (see
+        # build_db.py's SCHEMA_SQL) applies to this run.
+        if scrape_date is not None:
+            conflict_cols, conflict_where = "raceathlete_id, scrape_date", "scrape_date IS NOT NULL"
+        else:
+            conflict_cols, conflict_where = "raceathlete_id, scrape_week", "scrape_week IS NOT NULL"
+
+        if do_national:
+            conn.executemany(f"""
+                INSERT INTO rank_snapshot(
+                    raceathlete_id, scrape_date, scrape_week,
+                    national_rank_senior, national_rank_u23, national_rank_u20,
+                    national_rank_u18, national_rank_u16, national_rank_u14
+                ) VALUES (?,?,?, ?,?,?,?,?,?)
+                ON CONFLICT({conflict_cols}) WHERE {conflict_where} DO UPDATE SET
+                    national_rank_senior = excluded.national_rank_senior,
+                    national_rank_u23 = excluded.national_rank_u23,
+                    national_rank_u20 = excluded.national_rank_u20,
+                    national_rank_u18 = excluded.national_rank_u18,
+                    national_rank_u16 = excluded.national_rank_u16,
+                    national_rank_u14 = excluded.national_rank_u14
+            """, [
+                (raceathlete_id, scrape_date, scrape_week,
+                 nat.get('senior'), nat.get('u23'), nat.get('u20'), nat.get('u18'),
+                 nat.get('u16'), nat.get('u14'))
+                for raceathlete_id, nat in national_updates
+            ])
+        if do_international:
+            conn.executemany(f"""
+                INSERT INTO rank_snapshot(
+                    raceathlete_id, scrape_date, scrape_week,
+                    world_rank_senior, world_rank_u23, world_rank_u20, world_rank_u18,
+                    europe_rank_senior, europe_rank_u23, europe_rank_u20, europe_rank_u18
+                ) VALUES (?,?,?, ?,?,?,?, ?,?,?,?)
+                ON CONFLICT({conflict_cols}) WHERE {conflict_where} DO UPDATE SET
+                    world_rank_senior = excluded.world_rank_senior,
+                    world_rank_u23 = excluded.world_rank_u23,
+                    world_rank_u20 = excluded.world_rank_u20,
+                    world_rank_u18 = excluded.world_rank_u18,
+                    europe_rank_senior = excluded.europe_rank_senior,
+                    europe_rank_u23 = excluded.europe_rank_u23,
+                    europe_rank_u20 = excluded.europe_rank_u20,
+                    europe_rank_u18 = excluded.europe_rank_u18
+            """, [
+                (raceathlete_id, scrape_date, scrape_week,
+                 w.get('senior'), w.get('u23'), w.get('u20'), w.get('u18'),
+                 eu.get('senior'), eu.get('u23'), eu.get('u20'), eu.get('u18'))
+                for raceathlete_id, w, eu in international_updates
+            ])
+
         # Commit (and save the scrape cache) after EVERY group, not just once
         # at the very end -- this scan can run for a long time (many
         # network requests), so if it crashes or gets interrupted partway
@@ -858,7 +936,7 @@ def process_ranking(conn, cache, season_year, force_refresh, group_limit=None, d
         # instead of being lost.
         conn.commit()
         cache.save()
-        total_written += len(updates)
+        total_written += written
 
     print(f"Season {season_year}: wrote ranks for {total_written} results.", flush=True)
 
@@ -879,6 +957,16 @@ def main():
                          help='required with --test: which --test-week this ranking run '
                               'corresponds to (tags every rank_snapshot row written this run '
                               'with scrape_week=N, instead of a real scrape_date)')
+    parser.add_argument('--scope', choices=('national', 'international', 'all'), default='all',
+                         help='which ranks to compute/write this run (default: all). "national" is '
+                              'cheap has.hr-vs-has.hr comparison, no network calls; "international" '
+                              '(world/europe) needs many worldathletics.org requests per discipline '
+                              '-- separate GitHub workflows use --scope national (weekly, alongside '
+                              'build_db.py) and --scope international (its own, less frequent '
+                              'schedule) instead of paying that cost every week. Restricting scope '
+                              'only touches that scope\'s columns, both on raceathlete and in '
+                              'rank_snapshot, so the two scopes can run independently without either '
+                              'one wiping out what the other already wrote.')
     args = parser.parse_args()
 
     if args.test and args.test_week is None:
@@ -901,7 +989,7 @@ def main():
         process_ranking(conn, cache, args.season, force_refresh=(args.season == CURRENT_YEAR),
                          group_limit=args.group_limit, discipline_name=args.discipline,
                          scrape_date=None if args.test else date.today().isoformat(),
-                         scrape_week=args.test_week if args.test else None)
+                         scrape_week=args.test_week if args.test else None, scope=args.scope)
     finally:
         # try/finally guarantees the cache gets saved and the DB connection
         # closed even if process_ranking raises partway through (e.g. a

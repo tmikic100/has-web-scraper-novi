@@ -27,8 +27,8 @@ jobs:
       - name: Update athletics.db (incremental -- keeps prior weeks' results)
         run: python build_db.py
 
-      - name: Update world/European rankings (current season)
-        run: python wa_ranking.py
+      - name: Update national rankings (current season)
+        run: python wa_ranking.py --scope national
 
       - name: Commit and push if changed
         run: |
