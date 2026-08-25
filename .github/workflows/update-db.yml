@@ -24,14 +24,17 @@ jobs:
       - name: Scrape latest season tables
         run: python downloader.py
 
-      - name: Rebuild athletics.db
+      - name: Update athletics.db (incremental -- keeps prior weeks' results)
         run: python build_db.py
+
+      - name: Update world/European rankings (current season)
+        run: python wa_ranking.py
 
       - name: Commit and push if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add tablice_sezone athletics.db
+          git add tablice_sezone athletics.db wa_ranking_cache.json
           if ! git diff --cached --quiet; then
             git commit -m "Weekly data refresh"
             git push

@@ -81,7 +81,6 @@ function renderTiles(stats) {
   const tiles = [
     ["Athletes", stats.athletes],
     ["Races entered", stats.races_entered],
-    ["Podium finishes", stats.podium_finishes],
     ["Avg WA points", stats.wa_points_avg ? stats.wa_points_avg.toFixed(0) : "-"],
   ];
   document.getElementById("statTiles").innerHTML = tiles.map(([label, value]) => `

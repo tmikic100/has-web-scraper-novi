@@ -57,16 +57,169 @@ $(function () {
 
 let athleteId = null;
 
-const COLUMNS = [
-  { field: "discipline", label: "Discipline" },
-  { field: "mark", label: "Mark" },
-  { field: "date", label: "Date" },
-  { field: "city", label: "City" },
-  { field: "agegroup", label: "Age group" },
-  { field: "rank", label: "Rank" },
-  { field: "club", label: "Club" },
-  { field: "wa_points", label: "WA pts" },
+// The 14 rank columns api.py returns both as a race's "current" flat value
+// and, per wa_ranking.py's rank_snapshot table, as row.rank_history (one
+// entry per past scrape, oldest first) -- see RANK_FIELDS reused below both
+// to flatten that history and to build the matching COLUMNS entries.
+const RANK_FIELDS = [
+  ["national_rank_senior", "National rank (senior)"],
+  ["national_rank_u23", "National rank (U23)"],
+  ["national_rank_u20", "National rank (U20)"],
+  ["national_rank_u18", "National rank (U18)"],
+  ["national_rank_u16", "National rank (U16)"],
+  ["national_rank_u14", "National rank (U14)"],
+  ["world_rank_senior", "World rank (senior)"],
+  ["world_rank_u23", "World rank (U23)"],
+  ["world_rank_u20", "World rank (U20)"],
+  ["world_rank_u18", "World rank (U18)"],
+  ["europe_rank_senior", "Europe rank (senior)"],
+  ["europe_rank_u23", "Europe rank (U23)"],
+  ["europe_rank_u20", "Europe rank (U20)"],
+  ["europe_rank_u18", "Europe rank (U18)"],
 ];
+
+// A discipline can have several race rows across a season -- one per
+// improved mark, since build_db.py keeps every old SB around instead of
+// overwriting it (that's how progression stays visible). This groups
+// results by discipline, picks the best mark in each group as the season
+// best (SB) to show on the always-visible summary row, and stashes every
+// race + rank_snapshot combination underneath as a collapsible detail
+// table so the week-by-week progression is one click away instead of
+// cluttering the main view.
+function bestRace(races) {
+  return races.reduce((best, r) => {
+    if (!best) return r;
+    const better = r.higher_is_better ? r.mark_value > best.mark_value : r.mark_value < best.mark_value;
+    return better ? r : best;
+  }, null);
+}
+
+function groupByDiscipline(results) {
+  const groups = new Map();
+  for (const race of results) {
+    if (!groups.has(race.discipline)) groups.set(race.discipline, []);
+    groups.get(race.discipline).push(race);
+  }
+  return groups;
+}
+
+// Expands a discipline's races into one row per (race, rank_snapshot) pair
+// -- races with no snapshot history at all fall back to a single "current"
+// row (e.g. a real athletics.db race that's only ever been ranked once).
+function snapshotRows(races) {
+  const rows = [];
+  for (const race of races) {
+    const history = race.rank_history || [];
+    if (history.length === 0) {
+      rows.push({ ...race, snapshot_label: "current" });
+      continue;
+    }
+    for (const snapshot of history) {
+      const label = snapshot.scrape_week != null
+        ? `Week ${snapshot.scrape_week}`
+        : (snapshot.scrape_date ?? "current");
+      rows.push({ ...race, ...snapshot, snapshot_label: label });
+    }
+  }
+  return rows;
+}
+
+// Most rank columns are NULL for most athletes (e.g. world/europe ranks only
+// ever get filled in once an athlete's mark clears the WA presence gate --
+// see wa_ranking.py's module docstring). Rather than showing 14 mostly-empty
+// columns, this scans every summary + detail row this athlete/year actually
+// has and keeps only the rank fields where at least one row has a real value.
+function activeRankFields(results) {
+  const active = new Set();
+  for (const race of results) {
+    for (const [field] of RANK_FIELDS) {
+      if (race[field] != null) active.add(field);
+    }
+    for (const snapshot of race.rank_history || []) {
+      for (const [field] of RANK_FIELDS) {
+        if (snapshot[field] != null) active.add(field);
+      }
+    }
+  }
+  return RANK_FIELDS.filter(([field]) => active.has(field));
+}
+
+function renderGroupedTable(results) {
+  $("#buttons .dt-buttons").remove();
+  const groups = groupByDiscipline(results);
+  const rankFields = activeRankFields(results);
+
+  const summaryColumns = [
+    { field: "discipline", label: "Discipline" },
+    { field: "mark", label: "Mark (SB)" },
+    { field: "date", label: "Date" },
+    { field: "city", label: "City" },
+    { field: "club", label: "Club" },
+    { field: "wa_points", label: "WA pts" },
+    ...rankFields.map(([field, label]) => ({ field, label })),
+  ];
+
+  const detailColumns = [
+    { field: "snapshot_label", label: "Snapshot" },
+    { field: "mark", label: "Mark" },
+    { field: "date", label: "Date" },
+    { field: "city", label: "City" },
+    { field: "club", label: "Club" },
+    { field: "wa_points", label: "WA pts" },
+    ...rankFields.map(([field, label]) => ({ field, label })),
+  ];
+
+  const theadCells = [`<th></th>`, ...summaryColumns.map(c => `<th class="text-center">${c.label}</th>`)].join("");
+
+  let bodyHtml = "";
+  let groupIndex = 0;
+  for (const [discipline, races] of groups) {
+    const sb = bestRace(races);
+    const sortedRaces = [...races].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    const detailRows = snapshotRows(sortedRaces);
+
+    const summaryCells = summaryColumns.map(c => {
+      const value = c.field === "discipline" ? discipline : (sb[c.field] ?? "");
+      return `<td class="text-center">${value}</td>`;
+    }).join("");
+
+    const detailTheadCells = detailColumns.map(c => `<th class="text-center">${c.label}</th>`).join("");
+    const detailBodyRows = detailRows.map(row => {
+      const cells = detailColumns.map(c => `<td class="text-center">${row[c.field] ?? ""}</td>`).join("");
+      return `<tr>${cells}</tr>`;
+    }).join("");
+
+    const groupId = `group-${groupIndex}`;
+    bodyHtml += `
+      <tr class="group-toggle" data-target="${groupId}" style="cursor:pointer;">
+        <td class="text-center"><span class="chevron">&#9656;</span></td>
+        ${summaryCells}
+      </tr>
+      <tr id="${groupId}" class="d-none">
+        <td colspan="${summaryColumns.length + 1}" class="p-2">
+          <table class="table table-sm table-bordered border-dark mb-0">
+            <thead class="table-secondary"><tr>${detailTheadCells}</tr></thead>
+            <tbody>${detailBodyRows}</tbody>
+          </table>
+        </td>
+      </tr>
+    `;
+    groupIndex++;
+  }
+
+  $("#DataTableDiv").html(`
+    <table class="table table-bordered border-dark table-primary">
+      <thead><tr>${theadCells}</tr></thead>
+      <tbody>${bodyHtml}</tbody>
+    </table>
+  `);
+
+  $("#DataTableDiv .group-toggle").on("click", function () {
+    const $row = $("#" + $(this).data("target"));
+    $row.toggleClass("d-none");
+    $(this).find(".chevron").html($row.hasClass("d-none") ? "&#9656;" : "&#9662;");
+  });
+}
 
 async function loadSeasons() {
   const seasons = await (await fetch(`${API_BASE_URL}/seasons`)).json();
@@ -81,7 +234,7 @@ async function loadYear() {
   try {
     const res = await fetch(`${API_BASE_URL}/athletes/${athleteId}/${year}`);
     const data = await res.json();
-    renderDataTable(data.results, COLUMNS);
+    renderGroupedTable(data.results);
   } finally {
     $("#spinner").hide();
   }

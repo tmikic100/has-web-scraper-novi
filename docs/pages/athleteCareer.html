@@ -85,16 +85,19 @@ function disciplineLabel(discipline, indoor) {
   return indoor ? `${discipline} (dvorana)` : discipline;
 }
 
-// One row per discipline, one column per year -- cell is that year's
-// season-best mark (a discipline can have many races in a season, but only
-// one is season_best) -- plus PB/PB Year/WA pts columns, mirroring the old
-// backend's GetAthleteCarrer pivot instead of a flat one-row-per-race list.
+// One row per discipline, one column per year -- cell is that year's best
+// mark (a discipline can have many races in a season; the season-best per
+// (discipline, year) and the all-time PB are both computed client-side here
+// from mark_value + higher_is_better, since the API now returns every race
+// rather than flagging a single season-best row) -- plus PB/PB Year/WA pts
+// columns, mirroring the old backend's GetAthleteCarrer pivot instead of a
+// flat one-row-per-race list.
 function renderProgressionTable(results) {
-  const seasonBest = results.filter(r => r.season_best);
-  const years = [...new Set(seasonBest.map(r => r.year))].sort((a, b) => a - b);
+  const individual = results.filter(r => r.mark_value != null);
+  const years = [...new Set(individual.map(r => r.year))].sort((a, b) => a - b);
 
   const disciplines = new Map(); // "name||indoor" -> { label, higherIsBetter, byYear }
-  for (const r of seasonBest) {
+  for (const r of individual) {
     const key = `${r.discipline}||${r.indoor}`;
     if (!disciplines.has(key)) {
       disciplines.set(key, {
@@ -103,21 +106,49 @@ function renderProgressionTable(results) {
         byYear: new Map(),
       });
     }
-    disciplines.get(key).byYear.set(r.year, r);
+    const d = disciplines.get(key);
+    const current = d.byYear.get(r.year);
+    const better = !current ||
+      (d.higherIsBetter ? r.mark_value > current.mark_value : r.mark_value < current.mark_value);
+    if (better) d.byYear.set(r.year, r);
   }
 
   const rows = [...disciplines.values()].sort((a, b) => a.label.localeCompare(b.label));
   for (const d of rows) {
-    d.pb = [...d.byYear.values()]
-      .filter(r => r.mark_value != null)
-      .reduce((best, r) => {
-        if (!best) return r;
-        const better = d.higherIsBetter ? r.mark_value > best.mark_value : r.mark_value < best.mark_value;
-        return better ? r : best;
-      }, null);
+    d.pb = [...d.byYear.values()].reduce((best, r) => {
+      if (!best) return r;
+      const better = d.higherIsBetter ? r.mark_value > best.mark_value : r.mark_value < best.mark_value;
+      return better ? r : best;
+    }, null);
   }
 
-  const thead = ["Discipline", ...years, "PB", "PB Year", "WA pts"]
+  const ALL_RANK_COLUMNS = [
+    ["national_rank_senior", "National rank (senior)"],
+    ["national_rank_u23", "National rank (U23)"],
+    ["national_rank_u20", "National rank (U20)"],
+    ["national_rank_u18", "National rank (U18)"],
+    ["national_rank_u16", "National rank (U16)"],
+    ["national_rank_u14", "National rank (U14)"],
+    ["world_rank_senior", "World rank (senior)"],
+    ["world_rank_u23", "World rank (U23)"],
+    ["world_rank_u20", "World rank (U20)"],
+    ["world_rank_u18", "World rank (U18)"],
+    ["europe_rank_senior", "Europe rank (senior)"],
+    ["europe_rank_u23", "Europe rank (U23)"],
+    ["europe_rank_u20", "Europe rank (U20)"],
+    ["europe_rank_u18", "Europe rank (U18)"],
+  ];
+
+  // Most rank columns are NULL for most athletes (e.g. world/europe ranks
+  // only ever get filled in once an athlete's mark clears the WA presence
+  // gate -- see wa_ranking.py's module docstring). Rather than showing 14
+  // mostly-empty columns, keep only the ones where at least one discipline's
+  // PB actually has a value.
+  const RANK_COLUMNS = ALL_RANK_COLUMNS.filter(([field]) =>
+    rows.some(d => d.pb && d.pb[field] != null)
+  );
+
+  const thead = ["Discipline", ...years, "PB", "PB Year", "WA pts", ...RANK_COLUMNS.map(c => c[1])]
     .map(h => `<th class="text-center">${h}</th>`).join("");
   const tbody = rows.map(d => {
     const yearCells = years.map(y => {
@@ -125,12 +156,16 @@ function renderProgressionTable(results) {
       return `<td class="text-center">${r ? r.mark : "-"}</td>`;
     }).join("");
     const pb = d.pb;
+    const rankCells = RANK_COLUMNS.map(([field]) =>
+      `<td class="text-center">${pb && pb[field] != null ? pb[field] : "-"}</td>`
+    ).join("");
     return `<tr>
       <td class="text-center">${d.label}</td>
       ${yearCells}
       <td class="text-center">${pb ? pb.mark : "-"}</td>
       <td class="text-center">${pb ? pb.year : "-"}</td>
       <td class="text-center">${pb && pb.wa_points != null ? pb.wa_points : "-"}</td>
+      ${rankCells}
     </tr>`;
   }).join("");
 
@@ -151,10 +186,28 @@ function populateDisciplines() {
   if (disciplines.length) renderChart(disciplines[0]);
 }
 
+// Formats a raw mark_value (seconds) as has.hr-style M:SS,ss time text --
+// e.g. 125.3 -> "2:05,30". Only kicks in past 60 seconds (800m and up
+// naturally clear that even at a jog); sprints/hurdles stay plain seconds,
+// matching how has.hr's own tables only switch to M:SS,ss formatting once a
+// mark passes a minute.
+function formatMarkValue(value) {
+  if (value < 60) return value.toFixed(2).replace(".", ",");
+  const minutes = Math.floor(value / 60);
+  const seconds = (value - minutes * 60).toFixed(2).padStart(5, "0");
+  return `${minutes}:${seconds.replace(".", ",")}`;
+}
+
 function renderChart(discipline) {
   const points = athleteResults
     .filter(r => r.discipline === discipline && r.mark_value != null)
     .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
+
+  // Field events (throws/jumps) already put the biggest -- best -- number at
+  // the top of a normal ascending axis. Track events are the opposite (a
+  // SMALLER time is better), so the axis needs reversing for those, to keep
+  // "up the chart" meaning "improving" regardless of event type.
+  const higherIsBetter = !!(points[0] && points[0].higher_is_better);
 
   const ctx = document.getElementById("progressionChart");
   if (chart) chart.destroy();
@@ -164,7 +217,23 @@ function renderChart(discipline) {
       labels: points.map(p => p.date),
       datasets: [{ label: discipline, data: points.map(p => p.mark_value), borderColor: "#2563eb", tension: 0.2 }],
     },
-    options: { responsive: true, scales: { y: { title: { display: true, text: "mark value" } } } },
+    options: {
+      responsive: true,
+      scales: {
+        y: {
+          title: { display: true, text: "mark value" },
+          reverse: !higherIsBetter,
+          ticks: { callback: (value) => (higherIsBetter ? value : formatMarkValue(value)) },
+        },
+      },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${discipline}: ${higherIsBetter ? ctx.parsed.y : formatMarkValue(ctx.parsed.y)}`,
+          },
+        },
+      },
+    },
   });
 }
 
