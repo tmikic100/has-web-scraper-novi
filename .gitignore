@@ -3,9 +3,10 @@ __pycache__/
 .claude/
 tablice_sezone/
 
-# WA scoring pipeline is a separate, unrelated project (out of scope for the has.hr DB repo)
-wa_scoring.py
-score_agr_2025.py
-wa_scoring_cache.json
+# wa_scoring.py / score_agr_2025.py are hard imports of build_db.py (WA-points
+# scoring during the build -- see Loader.scorer), and wa_scoring_cache.json is
+# what lets Scorer() work without the WA scoring-tables PDF itself, which
+# stays out of the repo below. AGR_2025_WA_points.csv is a standalone
+# score_agr_2025.py report, unrelated to the has.hr DB build.
 AGR_2025_WA_points.csv
 *.pdf
