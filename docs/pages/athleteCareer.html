@@ -113,7 +113,12 @@ function renderProgressionTable(results) {
     if (better) d.byYear.set(r.year, r);
   }
 
-  const rows = [...disciplines.values()].sort((a, b) => a.label.localeCompare(b.label));
+  // Disciplines with the most years of data show first (the athlete's main
+  // events ahead of one-off/occasional ones); ties fall back to alphabetical.
+  const rows = [...disciplines.values()].sort((a, b) => {
+    if (b.byYear.size !== a.byYear.size) return b.byYear.size - a.byYear.size;
+    return a.label.localeCompare(b.label);
+  });
   for (const d of rows) {
     d.pb = [...d.byYear.values()].reduce((best, r) => {
       if (!best) return r;
@@ -186,16 +191,21 @@ function populateDisciplines() {
   if (disciplines.length) renderChart(disciplines[0]);
 }
 
-// Formats a raw mark_value (seconds) as has.hr-style M:SS,ss time text --
-// e.g. 125.3 -> "2:05,30". Only kicks in past 60 seconds (800m and up
-// naturally clear that even at a jog); sprints/hurdles stay plain seconds,
-// matching how has.hr's own tables only switch to M:SS,ss formatting once a
-// mark passes a minute.
+// Formats a raw mark_value (seconds) as has.hr-style time text -- "M:SS,ss"
+// once a mark passes 60 seconds (800m and up naturally clear that even at a
+// jog), escalating to "H:MM:SS,ss" past an hour so road-running distances
+// (10km, half marathon, marathon) format correctly too -- e.g. 125.3 ->
+// "2:05,30", 9000 -> "2:30:00,00". Sprints/hurdles stay plain seconds,
+// matching how has.hr's own tables only switch to time formatting once a
+// mark passes a minute (see parse_tables.normalize_mark).
 function formatMarkValue(value) {
   if (value < 60) return value.toFixed(2).replace(".", ",");
-  const minutes = Math.floor(value / 60);
-  const seconds = (value - minutes * 60).toFixed(2).padStart(5, "0");
-  return `${minutes}:${seconds.replace(".", ",")}`;
+  const totalMinutes = Math.floor(value / 60);
+  const seconds = (value - totalMinutes * 60).toFixed(2).padStart(5, "0").replace(".", ",");
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0) return `${hours}:${String(minutes).padStart(2, "0")}:${seconds}`;
+  return `${minutes}:${seconds}`;
 }
 
 function renderChart(discipline) {
@@ -209,13 +219,34 @@ function renderChart(discipline) {
   // "up the chart" meaning "improving" regardless of event type.
   const higherIsBetter = !!(points[0] && points[0].higher_is_better);
 
+  // Find the PB point (the single best mark in this discipline's whole
+  // progression, not just this year -- points already spans every year) so
+  // it can be drawn as a distinct highlighted dot instead of blending into
+  // the rest of the line.
+  const pbIndex = points.reduce((bestIdx, p, i, arr) => {
+    if (bestIdx === -1) return i;
+    const better = higherIsBetter ? p.mark_value > arr[bestIdx].mark_value : p.mark_value < arr[bestIdx].mark_value;
+    return better ? i : bestIdx;
+  }, -1);
+  const pointColors = points.map((_, i) => (i === pbIndex ? "#dc2626" : "#2563eb"));
+  const pointRadii = points.map((_, i) => (i === pbIndex ? 7 : 3));
+
   const ctx = document.getElementById("progressionChart");
   if (chart) chart.destroy();
   chart = new Chart(ctx, {
     type: "line",
     data: {
       labels: points.map(p => p.date),
-      datasets: [{ label: discipline, data: points.map(p => p.mark_value), borderColor: "#2563eb", tension: 0.2 }],
+      datasets: [{
+        label: discipline,
+        data: points.map(p => p.mark_value),
+        borderColor: "#2563eb",
+        tension: 0.2,
+        pointBackgroundColor: pointColors,
+        pointBorderColor: pointColors,
+        pointRadius: pointRadii,
+        pointHoverRadius: pointRadii.map(r => r + 2),
+      }],
     },
     options: {
       responsive: true,
@@ -229,7 +260,10 @@ function renderChart(discipline) {
       plugins: {
         tooltip: {
           callbacks: {
-            label: (ctx) => `${discipline}: ${higherIsBetter ? ctx.parsed.y : formatMarkValue(ctx.parsed.y)}`,
+            label: (ctx) => {
+              const formatted = higherIsBetter ? ctx.parsed.y : formatMarkValue(ctx.parsed.y);
+              return `${discipline}: ${formatted}${ctx.dataIndex === pbIndex ? " (PB)" : ""}`;
+            },
           },
         },
       },

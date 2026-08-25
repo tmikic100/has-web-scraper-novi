@@ -144,10 +144,23 @@ function activeRankFields(results) {
   return RANK_FIELDS.filter(([field]) => active.has(field));
 }
 
-function renderGroupedTable(results) {
+function renderGroupedTable(results, careerYearsByDiscipline) {
   $("#buttons .dt-buttons").remove();
-  const groups = groupByDiscipline(results);
   const rankFields = activeRankFields(results);
+
+  // Disciplines the athlete has done the longest (most distinct career
+  // years, across ALL seasons -- not just this one) show first, so the
+  // athlete's main events surface before one-off/occasional ones. Ties
+  // (including disciplines missing from career data entirely) fall back to
+  // alphabetical order.
+  const groups = new Map(
+    [...groupByDiscipline(results).entries()].sort((a, b) => {
+      const yearsA = careerYearsByDiscipline.get(a[0]) ?? 0;
+      const yearsB = careerYearsByDiscipline.get(b[0]) ?? 0;
+      if (yearsB !== yearsA) return yearsB - yearsA;
+      return a[0].localeCompare(b[0]);
+    })
+  );
 
   const summaryColumns = [
     { field: "discipline", label: "Discipline" },
@@ -221,6 +234,26 @@ function renderGroupedTable(results) {
   });
 }
 
+// Cached per athlete (not per year -- career depth doesn't change when you
+// just switch the year dropdown) so switching years for the same athlete
+// doesn't re-fetch their whole career every time.
+let careerYearsCache = null; // { athleteId, counts: Map<discipline, yearCount> }
+
+async function getCareerYearsByDiscipline(id) {
+  if (careerYearsCache && careerYearsCache.athleteId === id) return careerYearsCache.counts;
+  const res = await fetch(`${API_BASE_URL}/athletes/${id}/career`);
+  const data = await res.json();
+  const yearsByDiscipline = new Map();
+  for (const r of data.results) {
+    if (r.mark_value == null) continue;
+    if (!yearsByDiscipline.has(r.discipline)) yearsByDiscipline.set(r.discipline, new Set());
+    yearsByDiscipline.get(r.discipline).add(r.year);
+  }
+  const counts = new Map([...yearsByDiscipline].map(([d, years]) => [d, years.size]));
+  careerYearsCache = { athleteId: id, counts };
+  return counts;
+}
+
 async function loadSeasons() {
   const seasons = await (await fetch(`${API_BASE_URL}/seasons`)).json();
   document.getElementById("yearSelect").innerHTML =
@@ -232,9 +265,12 @@ async function loadYear() {
   if (!athleteId || !year) return;
   $("#spinner").show();
   try {
-    const res = await fetch(`${API_BASE_URL}/athletes/${athleteId}/${year}`);
+    const [res, careerYears] = await Promise.all([
+      fetch(`${API_BASE_URL}/athletes/${athleteId}/${year}`),
+      getCareerYearsByDiscipline(athleteId),
+    ]);
     const data = await res.json();
-    renderGroupedTable(data.results);
+    renderGroupedTable(data.results, careerYears);
   } finally {
     $("#spinner").hide();
   }
