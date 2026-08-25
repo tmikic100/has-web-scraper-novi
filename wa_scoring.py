@@ -23,8 +23,13 @@ from bisect import bisect_left
 from pathlib import Path
 
 # pypdf is a third-party library for reading PDF files -- PdfReader lets us
-# pull the raw text out of each page.
-from pypdf import PdfReader
+# pull the raw text out of each page. Deliberately NOT imported at module
+# level: build_db.py imports this whole file just for Scorer/norm_col/etc.,
+# and the normal path (wa_scoring_cache.json already exists -- see
+# load_tables) never touches the PDF at all, so requiring pypdf as a
+# production/CI dependency for a code path that's only ever exercised when
+# manually rebuilding the cache locally would be wrong. See build_tables()
+# below, the only place this actually gets imported.
 
 PDF_PATH = Path(__file__).parent / "World Athletics Scoring Tables of Athletics (3).pdf"
 CACHE_PATH = Path(__file__).parent / "wa_scoring_cache.json"
@@ -226,6 +231,7 @@ def build_tables():
     """Parses the whole PDF from scratch (slow -- this is why load_tables()
     below caches the result to a JSON file instead of calling this every
     time). Returns {'M': {column: {mark: points}}, 'F': {...}}."""
+    from pypdf import PdfReader  # see the module-level comment above
     reader = PdfReader(str(PDF_PATH))
     tables = {'M': {}, 'F': {}}
     # enumerate(SECTIONS) gives us both the index `i` and each tuple, unpacked
