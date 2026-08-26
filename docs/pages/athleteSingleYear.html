@@ -94,11 +94,32 @@ function bestRace(races) {
   }, null);
 }
 
+// Indoor/outdoor and wind-assisted/irregular-conditions marks are real
+// results, but they're not the same kind of SB as a normal outdoor mark --
+// indoor times don't count for outdoor rankings, and wind-assisted/irregular
+// marks are explicitly excluded from ranking entirely (see build_db.py's
+// exclude_from_ranking / parse_tables.CONDITION_FLAG_PHRASES). Mixing them
+// into one discipline group was hiding that distinction, including a
+// handful of genuinely invalid-looking marks from past years -- so each
+// combination gets its own group instead, labeled to make it explicit.
+function raceCategoryLabel(race) {
+  if (race.wind_assisted) return "vjetar";
+  if (race.exclude_from_ranking) return "izvanredni uvjeti";
+  return null;
+}
+
 function groupByDiscipline(results) {
-  const groups = new Map();
+  const groups = new Map(); // "discipline||indoor||category" -> { label, baseDiscipline, races }
   for (const race of results) {
-    if (!groups.has(race.discipline)) groups.set(race.discipline, []);
-    groups.get(race.discipline).push(race);
+    const category = raceCategoryLabel(race);
+    const key = `${race.discipline}||${race.indoor}||${category}`;
+    if (!groups.has(key)) {
+      let label = race.discipline;
+      if (race.indoor) label += " - dvorana";
+      if (category) label += ` - ${category}`;
+      groups.set(key, { label, baseDiscipline: race.discipline, races: [] });
+    }
+    groups.get(key).races.push(race);
   }
   return groups;
 }
@@ -155,10 +176,14 @@ function renderGroupedTable(results, careerYearsByDiscipline) {
   // alphabetical order.
   const groups = new Map(
     [...groupByDiscipline(results).entries()].sort((a, b) => {
-      const yearsA = careerYearsByDiscipline.get(a[0]) ?? 0;
-      const yearsB = careerYearsByDiscipline.get(b[0]) ?? 0;
+      // Career-years lookup is by the plain (indoor/wind/category-agnostic)
+      // discipline name -- an indoor or wind-assisted group shares its base
+      // discipline's career depth, e.g. "100m - dvorana" sorts alongside
+      // "100m" rather than always falling back to 0/last.
+      const yearsA = careerYearsByDiscipline.get(a[1].baseDiscipline) ?? 0;
+      const yearsB = careerYearsByDiscipline.get(b[1].baseDiscipline) ?? 0;
       if (yearsB !== yearsA) return yearsB - yearsA;
-      return a[0].localeCompare(b[0]);
+      return a[1].label.localeCompare(b[1].label);
     })
   );
 
@@ -186,7 +211,8 @@ function renderGroupedTable(results, careerYearsByDiscipline) {
 
   let bodyHtml = "";
   let groupIndex = 0;
-  for (const [discipline, races] of groups) {
+  for (const [, group] of groups) {
+    const { label: discipline, races } = group;
     const sb = bestRace(races);
     const sortedRaces = [...races].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
     const detailRows = snapshotRows(sortedRaces);

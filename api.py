@@ -249,7 +249,7 @@ def _career_rows(conn, athlete_id: int, season_id: Optional[int] = None):
     query = """
         SELECT ra.id AS raceathlete_id,
                s.year, d.name AS discipline, d.indoor, d.higher_is_better, r.mark, r.mark_value,
-               r.wind, r.city, r.date, r.wa_points, r.info,
+               r.wind, r.wind_assisted, r.exclude_from_ranking, r.city, r.date, r.wa_points, r.info,
                ra.world_rank_senior, ra.world_rank_u23, ra.world_rank_u20, ra.world_rank_u18,
                ra.europe_rank_senior, ra.europe_rank_u23, ra.europe_rank_u20, ra.europe_rank_u18,
                ra.national_rank_senior, ra.national_rank_u23, ra.national_rank_u20,

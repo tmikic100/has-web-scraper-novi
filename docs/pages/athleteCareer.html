@@ -93,7 +93,16 @@ function disciplineLabel(discipline, indoor) {
 // columns, mirroring the old backend's GetAthleteCarrer pivot instead of a
 // flat one-row-per-race list.
 function renderProgressionTable(results) {
-  const individual = results.filter(r => r.mark_value != null);
+  // exclude_from_ranking covers wind-assisted marks AND every other
+  // irregular-conditions case has.hr flags (out-of-stadium, no wind data,
+  // etc. -- see parse_tables.CONDITION_FLAG_PHRASES). A wind-assisted mark
+  // is very often the fastest one on record for a discipline/year, so
+  // without this filter it would win the season-best/PB comparison below
+  // and get shown as if it were a real, ranking-eligible result. This page
+  // only ever shows indoor ("dvorana") vs outdoor as separate rows -- unlike
+  // athleteSingleYear.html, invalid marks aren't broken out into their own
+  // row here, they're just excluded from ever being picked as a best mark.
+  const individual = results.filter(r => r.mark_value != null && !r.exclude_from_ranking);
   const years = [...new Set(individual.map(r => r.year))].sort((a, b) => a - b);
 
   const disciplines = new Map(); // "name||indoor" -> { label, higherIsBetter, byYear }
@@ -194,7 +203,7 @@ function renderProgressionTable(results) {
 function disciplineYearCounts(results) {
   const yearsByDiscipline = new Map();
   for (const r of results) {
-    if (r.mark_value == null) continue;
+    if (r.mark_value == null || r.exclude_from_ranking) continue;
     if (!yearsByDiscipline.has(r.discipline)) yearsByDiscipline.set(r.discipline, new Set());
     yearsByDiscipline.get(r.discipline).add(r.year);
   }
@@ -236,8 +245,11 @@ function formatMarkValue(value) {
 }
 
 function renderChart(discipline) {
+  // Same exclude_from_ranking filter as renderProgressionTable -- a
+  // wind-assisted/irregular-conditions mark shouldn't be plotted as if it
+  // were a real result, and definitely shouldn't win the PB highlight below.
   const points = athleteResults
-    .filter(r => r.discipline === discipline && r.mark_value != null)
+    .filter(r => r.discipline === discipline && r.mark_value != null && !r.exclude_from_ranking)
     .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
 
   // Field events (throws/jumps) already put the biggest -- best -- number at
